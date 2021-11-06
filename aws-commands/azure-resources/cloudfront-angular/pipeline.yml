@@ -1,0 +1,164 @@
+# this will download the lambda.zip from S3 and install it to target
+trigger:
+  branches:
+    include:
+    - dev/*
+    - main
+    - prod/*
+  paths:
+    include:
+    - '${__PROJECTNAME__}/*'
+
+# when this stack should be triggered by another project (usually a lambda layer)
+# resources:
+#   pipelines:
+#     - pipeline: 'referred-pipeline'
+#       project: 'customer-strategy'
+#       source: 'referred-pipeline'
+#       trigger:
+#         branches:
+#         - dev/*
+#         - main
+#         - prod/*
+
+variables:
+- template: /environments.yml
+- name: project
+  value: '${__PROJECTNAME__}'
+
+pool:
+  vmImage: 'ubuntu-latest'
+
+steps:
+- task: NodeTool@0
+  inputs:
+    versionSpec: '14.x'
+- script: |
+    rm -rf $(project)/archive
+    mkdir $(project)/archive
+    cp $(project)/cloudformation.yml $(project)/archive/cloudformation.yml
+  displayName: Setup $(project)/archive folder
+- task: ArchiveFiles@2
+  displayName: Pack Source files into ZIP package
+  inputs:
+    rootFolderOrFile: '$(project)'
+    includeRootFolder: false
+    archiveType: 'zip'
+    archiveFile: '$(project)/archive/source.zip'
+    replaceExistingArchive: true
+- script: |
+    cd $(project)
+    npm install -g @angular/cli
+    npm install
+    ng build --prod
+  displayName: Angular Bulid Pipeline into $(project)/dist/$(project)/
+- task: ArchiveFiles@2
+  displayName: Pack Angular files into $(project)/archive/angular.zip
+  inputs:
+    rootFolderOrFile: '$(project)/dist/$(project)'
+    includeRootFolder: false
+    archiveType: 'zip'
+    archiveFile: '$(project)/archive/angular.zip'
+    replaceExistingArchive: true
+- task: S3Upload@1
+  displayName: Upload all files to stacks folder in S3
+  inputs:
+    awsCredentials: '$(AWSAccountId)'
+    regionName: '$(AWSRegion)'
+    bucketName: '$(AWSAccountId)-$(AWSRegion)-stacks'
+    sourceFolder: '$(project)/archive'
+    globExpressions: '**'
+    targetFolder: '$(Application)/$(EnvironmentTarget)/$(Version)/$(project)/$(Build.BuildId)'
+    createBucket: true
+- task: LambdaInvokeFunction@1
+  continueOnError: true
+  displayName: Delete S3 Files
+  inputs:
+    awsCredentials: '$(AWSAccountId)'
+    regionName: '$(AWSRegion)'
+    functionName: 'serverless-compute--s3-api--prod'
+    payload: |
+      {
+        "Remove": [ "s3://$(AWSAccountId)--$(AWSRegion)--$(Application)--$(project)--$(EnvironmentTarget)/" ]
+      }
+- task: S3Upload@1
+  displayName: Upload angular files to s3 bucket
+  inputs:
+    awsCredentials: '$(AWSAccountId)'
+    regionName: '$(AWSRegion)'
+    bucketName: '$(AWSAccountId)--$(AWSRegion)--$(Application)--$(project)--$(EnvironmentTarget)'
+    sourceFolder: '$(project)/dist/$(project)'
+    globExpressions: '**'
+    targetFolder: ''
+    createBucket: true
+- task: LambdaInvokeFunction@1
+  continueOnError: true
+  displayName: Get CloudFormation Physical Id
+  inputs:
+    awsCredentials: '$(AWSAccountId)'
+    regionName: '$(AWSRegion)'
+    functionName: 'serverless-compute--cloudformation-api--prod'
+    payload: |
+      {
+        "action": "Get",
+        "name": "$(Application)--$(project)--$(AWSRegion)--$(EnvironmentTarget)",
+        "id": "S3CloudFrontDistribution"
+      }
+    outputVariable: S3CloudFrontDistributionId
+- task: LambdaInvokeFunction@1
+  continueOnError: true
+  displayName: Invalidate CloudFront Distribution
+  inputs:
+    awsCredentials: '$(AWSAccountId)'
+    regionName: '$(AWSRegion)'
+    functionName: 'serverless-compute--cloudfront-api--prod'
+    payload: |
+      {
+        "Action": "Invalidate",
+        "DistributionId": $(S3CloudFrontDistributionId),
+        "Paths": [ "/*" ]
+      }
+- task: LambdaInvokeFunction@1
+  continueOnError: true
+  displayName: Check the state of CloudFormation
+  inputs:
+    awsCredentials: '$(AWSAccountId)'
+    regionName: '$(AWSRegion)'
+    functionName: 'aws-devops-helper'
+    payload: |
+      {
+        "name": "$(Application)--$(project)--$(AWSRegion)--$(EnvironmentTarget)",
+        "query": "CloudFormationState"
+      }
+    outputVariable: 'ShouldDeleteStack'
+- task: CloudFormationDeleteStack@1
+  continueOnError: true
+  displayName: Delete the CloudFormation when necessary
+  condition: eq(variables.ShouldDeleteStack , '"true"')
+  inputs:
+    awsCredentials: '$(AWSAccountId)'
+    regionName: '$(AWSRegion)'
+    stackName: '$(Application)--$(project)--$(AWSRegion)--$(EnvironmentTarget)'
+- task: CloudFormationCreateOrUpdateStack@1
+  displayName: Run the CloudFormation Create/Update
+  inputs:
+    awsCredentials: '$(AWSAccountId)'
+    regionName: '$(AWSRegion)'
+    stackName: '$(Application)--$(project)--$(AWSRegion)--$(EnvironmentTarget)'
+    templateSource: 's3'
+    s3BucketName: '$(AWSAccountId)-$(AWSRegion)-stacks'
+    s3ObjectKey: '$(Application)/$(EnvironmentTarget)/$(Version)/$(project)/$(Build.BuildId)/cloudformation.yml'
+    templateParametersSource: 'inline'
+    templateParameters: |
+      [
+        {"ParameterKey":"AWSAccountId", "ParameterValue":"$(AWSAccountId)"},
+        {"ParameterKey":"AWSRegion", "ParameterValue":"$(AWSRegion)"},
+        {"ParameterKey":"Application", "ParameterValue":"$(Application)"},
+        {"ParameterKey":"Version", "ParameterValue":"$(Version)"},
+        {"ParameterKey":"Project", "ParameterValue":"$(project)"},
+        {"ParameterKey":"EnvironmentTarget", "ParameterValue":"$(EnvironmentTarget)"},
+        {"ParameterKey":"Runtime", "ParameterValue":"$(LambdaRuntimeNodeJS)"},
+        {"ParameterKey":"BuildId", "ParameterValue":"$(Build.BuildId)"}
+      ]
+    capabilityAutoExpand: true
+

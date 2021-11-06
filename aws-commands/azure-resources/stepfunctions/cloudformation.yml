@@ -1,0 +1,58 @@
+Parameters:
+  AWSAccountId:
+    Type: String
+  AWSRegion:
+    Type: String
+  Application:
+    Type: String
+  Version:
+    Type: String
+  Project:
+    Type: String
+  EnvironmentTarget:
+    Type: String
+  Runtime:
+    Type: String
+  BuildId:
+    Type: String
+
+Resources:
+  StepFunctionsRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: 2012-10-17
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service:
+                - states.amazonaws.com
+            Action:
+              - sts:AssumeRole
+      Path: /
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/AdministratorAccess
+  StateMachineLogs:
+    Type: AWS::Logs::LogGroup
+    Properties:
+      LogGroupName: !Sub '/aws/vendedlogs/states/${Application}--${Project}--${EnvironmentTarget}'
+      RetentionInDays: 365
+  StateMachine:
+    Type: AWS::StepFunctions::StateMachine
+    Properties:
+      StateMachineName: !Sub '${Application}--${Project}--${EnvironmentTarget}'
+      StateMachineType: STANDARD
+      DefinitionS3Location:
+        # use the new version so that it can update with new json file
+        Bucket: !Sub ${AWSAccountId}-${AWSRegion}-stacks
+        Key: !Sub ${Application}/${EnvironmentTarget}/${Version}/${Project}/${BuildId}/definition.json
+    # Add the substitutions here
+    #   DefinitionSubstitutions:
+    #     region: !Sub ${AWS::Region}
+    #     accountId: !Sub ${AWS::AccountId}
+      RoleArn: !GetAtt StepFunctionsRole.Arn
+      LoggingConfiguration:
+        Destinations:
+          - CloudWatchLogsLogGroup:
+              LogGroupArn: !GetAtt StateMachineLogs.Arn
+        Level: ALL

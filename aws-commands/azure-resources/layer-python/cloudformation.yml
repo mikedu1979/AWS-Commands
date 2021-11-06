@@ -1,0 +1,28 @@
+Parameters:
+  AWSAccountId:
+    Type: String
+  AWSRegion:
+    Type: String
+  Application:
+    Type: String
+  Version:
+    Type: String
+  Project:
+    Type: String
+  EnvironmentTarget:
+    Type: String
+  Runtime:
+    Type: String
+  BuildId:
+    Type: String
+
+Resources: 
+  ProjectLayer:
+    Type: AWS::Lambda::LayerVersion
+    Properties:
+      LayerName: !Sub ${Application}--${Project}--${EnvironmentTarget}
+      CompatibleRuntimes: 
+        - !Sub ${Runtime}
+      Content:
+        S3Bucket: !Sub ${AWSAccountId}-${AWSRegion}-stacks
+        S3Key: !Sub '${Application}/${EnvironmentTarget}/${Version}/${Project}/${BuildId}/layer.zip'

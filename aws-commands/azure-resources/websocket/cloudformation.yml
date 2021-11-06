@@ -1,0 +1,219 @@
+Parameters:
+  AWSAccountId:
+    Type: String
+  AWSRegion:
+    Type: String
+  Application:
+    Type: String
+  Version:
+    Type: String
+  Project:
+    Type: String
+  EnvironmentTarget:
+    Type: String
+  Runtime:
+    Type: String
+  BuildId:
+    Type: String
+  UsersProject:
+    Type: String
+
+Resources:
+  LambdaRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: 2012-10-17
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service:
+              - lambda.amazonaws.com
+            Action:
+            - sts:AssumeRole
+      Path: /
+      ManagedPolicyArns:
+      - arn:aws:iam::aws:policy/AdministratorAccess
+  Lambda:
+    Type: AWS::Lambda::Function
+    Properties:
+      Code:
+        S3Bucket: !Sub ${AWSAccountId}-${AWSRegion}-stacks
+        S3Key: !Sub ${Application}/${EnvironmentTarget}/${Version}/${Project}/${BuildId}/lambda.zip
+      FunctionName: !Sub ${Application}--${Project}--${EnvironmentTarget}
+      Handler: lambda.handler
+      MemorySize: 512
+      Role: !GetAtt LambdaRole.Arn
+      Runtime: !Sub ${Runtime}
+      Timeout: 60
+    # Add Layers Here
+      Layers:
+        - Fn::Transform:
+            Name : cloudformation-utils
+            Parameters:
+              InputString: !Sub 'ProjectLayer@serverless-compute--jwt-verify--${AWSRegion}--prod'
+              Operation: Stack
+    # Add User Pool Id reference here
+      Environment:
+        Variables:
+          UserPoolId:
+            Fn::Transform:
+              Name : cloudformation-utils
+              Parameters:
+                InputString: !Sub 'UserPool@${Application}--${UsersProject}--${AWSRegion}--${EnvironmentTarget}'
+                Operation: Stack
+          WebSocketConnectionsTable: !Sub ${Application}--${Project}--${EnvironmentTarget}--websocket-connections
+          WebSocketUsersTable: !Sub ${Application}--${Project}--${EnvironmentTarget}--websocket-users
+
+
+  ApiGatewayInvokePermission:
+    Type: AWS::Lambda::Permission
+    Properties:
+      Action: lambda:InvokeFunction
+      FunctionName: !Ref Lambda
+      Principal: apigateway.amazonaws.com
+
+
+  # if you want to schedule the lambda by timer
+  # LambdaRunnerRule:
+  #   Type: AWS::Events::Rule
+  #   Properties:
+  #     Description: 'Run the lambda at 00:00'
+  #     ScheduleExpression: 'cron(0 0 * * ? *)'
+  #     Name: !Sub '${Application}--${Project}--event-rule--${EnvironmentTarget}'
+  #     State: ENABLED
+  #     Targets:
+  #       - Arn: !GetAtt Lambda.Arn
+  #         Id: Invoke-Lambda
+  #         Input: !Sub |
+  #           { 
+  #             "name": "abc"
+  #           }
+
+  # EventsInvokePermission: 
+  #   Type: AWS::Lambda::Permission
+  #   Properties: 
+  #     FunctionName: !Ref Lambda
+  #     Action: lambda:InvokeFunction
+  #     Principal: events.amazonaws.com
+  #     SourceArn: !GetAtt LambdaRunnerRule.Arn
+
+  LambdaWebSocket:
+    Type: AWS::ApiGatewayV2::Api
+    Properties:
+      Name: !Sub ${Application}--${Project}--${EnvironmentTarget}--websocket
+      ProtocolType: WEBSOCKET
+      RouteSelectionExpression: "$request.body.action"
+  ConnectIntegration:
+    Type: AWS::ApiGatewayV2::Integration
+    Properties:
+      ApiId: !Ref LambdaWebSocket
+      Description: Connect Integration
+      IntegrationType: AWS_PROXY
+      IntegrationUri: !Sub arn:aws:apigateway:${AWSRegion}:lambda:path/2015-03-31/functions/${Lambda.Arn}/invocations
+  ConnectionRoute:
+    Type: AWS::ApiGatewayV2::Route
+    Properties:
+      ApiId: !Ref LambdaWebSocket
+      RouteKey: $connect
+      AuthorizationType: NONE
+      OperationName: ConnectionRoute
+      Target: !Sub integrations/${ConnectIntegration}
+  DisconnectIntegration:
+    Type: AWS::ApiGatewayV2::Integration
+    Properties:
+      ApiId: !Ref LambdaWebSocket
+      Description: Disconnect Integration
+      IntegrationType: AWS_PROXY
+      IntegrationUri: !Sub arn:aws:apigateway:${AWSRegion}:lambda:path/2015-03-31/functions/${Lambda.Arn}/invocations
+  DisconnectionRoute:
+    Type: AWS::ApiGatewayV2::Route
+    Properties:
+      ApiId: !Ref LambdaWebSocket
+      RouteKey: $disconnect
+      AuthorizationType: NONE
+      OperationName: DisconnectionRoute
+      Target: !Sub integrations/${DisconnectIntegration}
+  # Echo
+  EchoIntegration:
+    Type: AWS::ApiGatewayV2::Integration
+    Properties:
+      ApiId: !Ref LambdaWebSocket
+      Description: Disconnect Integration
+      IntegrationType: AWS_PROXY
+      IntegrationUri: !Sub arn:aws:apigateway:${AWSRegion}:lambda:path/2015-03-31/functions/${Lambda.Arn}/invocations
+  EchoRoute:
+    Type: AWS::ApiGatewayV2::Route
+    Properties:
+      ApiId: !Ref LambdaWebSocket
+      RouteKey: echo
+      AuthorizationType: NONE
+      OperationName: EchoRoute
+      Target: !Sub integrations/${EchoIntegration}
+
+  # NewRoute
+  # # change ProjectIntegration
+  # ProjectIntegration:
+  #   Type: AWS::ApiGatewayV2::Integration
+  #   Properties:
+  #     ApiId: !Ref LambdaWebSocket
+  #     Description: Disconnect Integration
+  #     IntegrationType: AWS_PROXY
+  #     # change [project]
+  #     IntegrationUri: !Sub arn:aws:apigateway:${AWSRegion}:lambda:path/2015-03-31/functions/arn:aws:lambda:${AWSRegion}:${AWSAccountId}:function:${Application}--[project]--${EnvironmentTarget}/invocations
+  # # change ProjectRoute
+  # ProjectRoute:
+  #   Type: AWS::ApiGatewayV2::Route
+  #   Properties:
+  #     ApiId: !Ref LambdaWebSocket
+  #     # change Project
+  #     RouteKey: Project
+  #     AuthorizationType: NONE
+  #     # change ProjectRoute
+  #     OperationName: ProjectRoute
+  #     # change ProjectIntegration
+  #     Target: !Sub integrations/${ProjectIntegration}
+
+  # deployment has dependencies on all the routes
+  WebSocketDeployment:
+    Type: AWS::ApiGatewayV2::Deployment
+    # if additional route is added, please also add it below
+    DependsOn:
+      - ConnectionRoute
+      - DisconnectionRoute
+      - EchoRoute
+    Properties:
+      ApiId: !Ref LambdaWebSocket
+  WebSocketStage:
+    Type: AWS::ApiGatewayV2::Stage
+    Properties:
+      StageName: prod
+      Description: Production Stage
+      DeploymentId: !Ref WebSocketDeployment
+      ApiId: !Ref LambdaWebSocket
+
+  # a DynamoDB that maps connectionId to user
+  DynamoDBTableWebSocketConnections: 
+    Type: AWS::DynamoDB::Table
+    Properties: 
+      TableName: !Sub ${Application}--${Project}--${EnvironmentTarget}--websocket-connections
+      BillingMode: PAY_PER_REQUEST
+      AttributeDefinitions: 
+        - AttributeName: "ConnectionId"
+          AttributeType: "S"
+      KeySchema: 
+        - AttributeName: "ConnectionId"
+          KeyType: "HASH"
+
+  # a DynamoDB that maps users to connectionIds
+  DynamoDBTableWebSocketUsers: 
+    Type: AWS::DynamoDB::Table
+    Properties:
+      TableName: !Sub ${Application}--${Project}--${EnvironmentTarget}--websocket-users
+      BillingMode: PAY_PER_REQUEST
+      AttributeDefinitions: 
+        - AttributeName: "Username"
+          AttributeType: "S"
+      KeySchema: 
+        - AttributeName: "Username"
+          KeyType: "HASH"  

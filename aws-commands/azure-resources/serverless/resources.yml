@@ -1,0 +1,47 @@
+Parameters:
+  AWSAccountId:
+    Type: String
+  AWSRegion:
+    Type: String
+  Application:
+    Type: String
+  Version:
+    Type: String
+  Project:
+    Type: String
+  EnvironmentTarget:
+    Type: String
+  BuildId:
+    Type: String
+
+Resources:
+
+  # sqs
+  JobsDeadLetterQueue: 
+    Type: AWS::SQS::Queue
+    Properties: 
+      QueueName: !Sub ${Application}--${Project}--${EnvironmentTarget}--deadletter
+  JobsSourceQueue: 
+    Type: AWS::SQS::Queue
+    Properties: 
+      QueueName: !Sub ${Application}--${Project}--${EnvironmentTarget}--source
+      RedrivePolicy: 
+        deadLetterTargetArn: !GetAtt JobsDeadLetterQueue.Arn
+        maxReceiveCount: 3
+
+  # dynamo
+  # MappingTable:
+  #   Type: AWS::DynamoDB::Table
+  #   Properties:
+  #     TableName: !Sub '${Application}--${Project}--${EnvironmentTarget}--mappings'
+  #     BillingMode: PAY_PER_REQUEST
+  #     AttributeDefinitions: 
+  #       - AttributeName: Key
+  #         AttributeType: S
+  #       - AttributeName: Value
+  #         AttributeType: S
+  #     KeySchema:
+  #       - AttributeName: Key
+  #         KeyType: HASH
+  #       - AttributeName: Value
+  #         KeyType: RANGE

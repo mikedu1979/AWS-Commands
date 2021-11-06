@@ -1,0 +1,13 @@
+{
+    "name": "websocket-api",
+    "description": "",
+    "main": "lambda.js",
+    "devDependencies": {
+        "@types/node": "^13.9.2",
+        "aws-sdk": "^2.643.0",
+        "jsonwebtoken": "^8.5.1",
+        "@types/jsonwebtoken": "8.5.0",
+        "jwk-to-pem": "^2.0.4",
+        "@types/jwk-to-pem": "2.0.0"
+    }
+}

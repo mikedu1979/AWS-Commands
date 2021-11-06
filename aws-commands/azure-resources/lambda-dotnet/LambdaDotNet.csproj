@@ -1,0 +1,23 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <TargetFramework>net5.0</TargetFramework>
+    <GenerateRuntimeConfigurationFiles>true</GenerateRuntimeConfigurationFiles>
+    <AWSProjectType>Lambda</AWSProjectType>
+
+    <!-- This property makes the build directory similar to a publish directory and helps the AWS .NET Lambda Mock Test Tool find project dependencies. -->
+    <CopyLocalLockFileAssemblies>true</CopyLocalLockFileAssemblies>
+
+    <!-- Enable single file -->
+    <PublishSingleFile>true</PublishSingleFile>
+    <!-- Self-contained or framework-dependent -->
+    <SelfContained>true</SelfContained>
+    <!-- The OS and CPU type you are targeting -->
+    <RuntimeIdentifier>linux-x64</RuntimeIdentifier>
+    <!-- Enable assembly trimming ? for self-contained apps -->
+    <PublishTrimmed>true</PublishTrimmed>
+  </PropertyGroup>
+  <ItemGroup>
+    <PackageReference Include="Amazon.Lambda.Core" Version="1.2.0" />
+    <PackageReference Include="Amazon.Lambda.Serialization.SystemTextJson" Version="2.1.0" />
+  </ItemGroup>
+</Project>

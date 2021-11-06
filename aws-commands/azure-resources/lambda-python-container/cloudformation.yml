@@ -1,0 +1,92 @@
+Parameters:
+  AWSAccountId:
+    Type: String
+  AWSRegion:
+    Type: String
+  Application:
+    Type: String
+  Version:
+    Type: String
+  Project:
+    Type: String
+  EnvironmentTarget:
+    Type: String
+  Runtime:
+    Type: String
+  BuildId:
+    Type: String
+
+Resources:
+  BatchComputeRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+        - Effect: Allow
+          Principal:
+            Service:
+            - ecs-tasks.amazonaws.com
+          Action:
+          - sts:AssumeRole
+      Path: "/"
+      ManagedPolicyArns:
+      - arn:aws:iam::aws:policy/AdministratorAccess
+
+  BatchPython:
+    Type: AWS::Batch::JobDefinition
+    Properties:
+      Type: container
+      JobDefinitionName: !Sub ${Application}--${Project}--${EnvironmentTarget}
+      ContainerProperties:
+        Command:
+        - 'python'
+        - '/var/task/entry.py'
+        - '--event'
+        - Ref::event
+        # Environment:
+        # - Name: name
+        #   Value: name
+        Memory: 2048
+        Privileged: true
+        JobRoleArn: !GetAtt BatchComputeRole.Arn
+        ReadonlyRootFilesystem: false
+        Vcpus: 1
+        Image: !Sub ${AWSAccountId}.dkr.ecr.${AWSRegion}.amazonaws.com/${Application}-${Project}-${EnvironmentTarget}:${BuildId}
+
+  LambdaRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: 2012-10-17
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service:
+              - lambda.amazonaws.com
+            Action:
+            - sts:AssumeRole
+      Path: /
+      ManagedPolicyArns:
+      - arn:aws:iam::aws:policy/AdministratorAccess
+      
+  Lambda:
+    Type: AWS::Lambda::Function
+    Properties:
+      PackageType: Image
+      Code:
+        ImageUri: !Sub ${AWSAccountId}.dkr.ecr.${AWSRegion}.amazonaws.com/${Application}-${Project}-${EnvironmentTarget}:${BuildId}
+      FunctionName: !Sub ${Application}--${Project}--${EnvironmentTarget}
+      MemorySize: 1024
+      Role: !GetAtt LambdaRole.Arn
+      Timeout: 60
+      # Environment:
+      #   Variables:
+      #     Key: Value
+
+  ApiGatewayInvokePermission:
+    Type: AWS::Lambda::Permission
+    Properties:
+      Action: lambda:InvokeFunction
+      FunctionName: !Ref Lambda
+      Principal: apigateway.amazonaws.com

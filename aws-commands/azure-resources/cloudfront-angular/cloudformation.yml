@@ -1,0 +1,64 @@
+Parameters:
+  AWSAccountId:
+    Type: String
+  AWSRegion:
+    Type: String
+  Application:
+    Type: String
+  Version:
+    Type: String
+  Project:
+    Type: String
+  EnvironmentTarget:
+    Type: String
+  Runtime:
+    Type: String
+  BuildId:
+    Type: String
+
+Resources:
+  S3OriginAccessIdentity:
+    Type: AWS::CloudFront::CloudFrontOriginAccessIdentity
+    Properties:
+      CloudFrontOriginAccessIdentityConfig:
+        Comment: Allow Access to S3 Bucket
+  S3OriginAccessPolicy:
+    Type: AWS::S3::BucketPolicy
+    Properties: 
+      Bucket: !Sub ${AWSAccountId}--${AWSRegion}--${Application}--${Project}--${EnvironmentTarget}
+      PolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal:
+              CanonicalUser: !GetAtt S3OriginAccessIdentity.S3CanonicalUserId
+            Action: "s3:GetObject"
+            Resource: !Sub arn:aws:s3:::${AWSAccountId}--${AWSRegion}--${Application}--${Project}--${EnvironmentTarget}/*
+  S3CloudFrontDistribution:
+    Type: AWS::CloudFront::Distribution
+    Properties:
+      DistributionConfig:
+        Origins:
+          - Id: S3CloudOrigin
+            DomainName: !Sub ${AWSAccountId}--${AWSRegion}--${Application}--${Project}--${EnvironmentTarget}.s3.amazonaws.com
+            S3OriginConfig:
+              OriginAccessIdentity: !Sub origin-access-identity/cloudfront/${S3OriginAccessIdentity}
+        Enabled: true
+        HttpVersion: http2
+        DefaultRootObject: index.html
+        PriceClass: PriceClass_100
+        ViewerCertificate:
+          CloudFrontDefaultCertificate: 'true'
+        DefaultCacheBehavior:
+          TargetOriginId: S3CloudOrigin
+          Compress: true
+          ForwardedValues:
+            QueryString: true
+          ViewerProtocolPolicy: redirect-to-https
+        CustomErrorResponses:
+          - ErrorCode: 404
+            ResponseCode: 200
+            ResponsePagePath: /index.html
+            ErrorCachingMinTTL: 100
+
+

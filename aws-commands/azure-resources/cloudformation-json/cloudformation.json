@@ -1,0 +1,15 @@
+{
+    "Parameters": {
+        "AWSAccountId": { "Type": "String" },
+        "AWSRegion": { "Type": "String" },
+        "Application": { "Type": "String" },
+        "Version": { "Type": "String" },
+        "Project": { "Type": "String" },
+        "EnvironmentTarget": { "Type": "String" },
+        "Runtime": { "Type": "String" },
+        "BuildId": { "Type": "String" }
+    },
+    "Resources": {
+
+    }
+}

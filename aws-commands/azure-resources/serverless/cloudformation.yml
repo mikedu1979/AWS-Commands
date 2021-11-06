@@ -1,0 +1,66 @@
+Parameters:
+  AWSAccountId:
+    Type: String
+  AWSRegion:
+    Type: String
+  Application:
+    Type: String
+  Version:
+    Type: String
+  Project:
+    Type: String
+  EnvironmentTarget:
+    Type: String
+  Runtime:
+    Type: String
+  BuildId:
+    Type: String
+
+Resources:
+
+  # you can put shared resources here
+
+  EventInvokeStepFunctionsRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: 2012-10-17
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service:
+                - events.amazonaws.com
+            Action: sts:AssumeRole
+      Path: /
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/AWSStepFunctionsFullAccess
+        - arn:aws:iam::aws:policy/AWSLambdaFullAccess
+        - arn:aws:iam::aws:policy/CloudWatchLogsFullAccess
+
+  ScriptRunnerRule:
+    Type: AWS::Events::Rule
+    Properties:
+      Description: 'Run the tasks.sql Every 10 min'
+      ScheduleExpression: 'cron(0/20 0 * * ? *)'
+      Name: !Sub '${Application}--${Project}--event-rule--${EnvironmentTarget}'
+      State: ENABLED
+      Targets:
+        - Arn: !Sub 'arn:aws:states:${AWSRegion}:${AWSAccountId}:stateMachine:serverless-compute--script-runner--prod'
+          Id: DataScript
+          Input: !Sub |
+            { 
+              "source": "s3://${AWSAccountId}-${AWSRegion}-stacks/${Application}/${EnvironmentTarget}/${Version}/${Project}/${BuildId}/tasks.sql",
+              "input": {
+                "dest": "s3://${AWSAccountId}-${AWSRegion}-stacks/${Application}/${EnvironmentTarget}/${Version}/${Project}/${BuildId}/",
+                "bucket": "${AWSAccountId}-${AWSRegion}-stacks",
+                "prefix": "${Application}/${EnvironmentTarget}/${Version}/${Project}/${BuildId}/",
+                "Application": "${Application}",
+                "Version": "${Version}",
+                "Project": "${Project}",
+                "AWSAccountId": "${AWSAccountId}",
+                "AWSRegion": "${AWSRegion}",
+                "EnvironmentTarget": "${EnvironmentTarget}",
+                "BuildId": "${BuildId}"
+              }
+            }
+          RoleArn: !GetAtt EventInvokeStepFunctionsRole.Arn

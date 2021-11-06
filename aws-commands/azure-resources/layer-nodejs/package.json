@@ -1,0 +1,7 @@
+{
+    "name": "${__PROJECTNAME__}",
+    "dependencies": {
+        "@types/node": "^13.9.2",
+        "aws-sdk": "^2.643.0"
+    }
+}

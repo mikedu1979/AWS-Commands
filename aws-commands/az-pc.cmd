@@ -1,0 +1,1 @@
+az pipelines create --name my-test --repository-type tfsgit --repository sharkfin-backtest --skip-first-run true --branch master --yaml-path my-test/pipeline.yml

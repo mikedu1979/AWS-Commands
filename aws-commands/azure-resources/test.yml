@@ -1,0 +1,11 @@
+
+
+
+# invoke a lambda function and set result to the outputVar
+- task: LambdaInvokeFunction@1
+  inputs:
+    awsCredentials: '074282070499'
+    regionName: 'ap-east-1'
+    functionName: 'function-name'
+    payload: '{ "Stack": "Name", "Id": "id"}'
+    outputVariable: 'outputVar'

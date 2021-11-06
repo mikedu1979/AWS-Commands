@@ -1,0 +1,266 @@
+Parameters:
+  AWSAccountId:
+    Type: String
+  AWSRegion:
+    Type: String
+  Application:
+    Type: String
+  Version:
+    Type: String
+  Project:
+    Type: String
+  EnvironmentTarget:
+    Type: String
+  Runtime:
+    Type: String
+  BuildId:
+    Type: String
+
+Resources:
+  UserPoolSNSRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument: 
+        Version: 2012-10-17
+        Statement:
+          - Effect: Allow
+            Principal: 
+              Service: 
+                - cognito-idp.amazonaws.com
+            Action: 
+              - sts:AssumeRole
+      Policies:
+        - PolicyName: CognitoSNSPolicy
+          PolicyDocument: 
+            Version: 2012-10-17
+            Statement: 
+              - Effect: Allow
+                Action: sns:publish
+                Resource: "*"
+  UserPool:
+    Type: AWS::Cognito::UserPool
+    Properties:
+      UserPoolName: !Sub ${Application}-${Project}-user-pool
+      # AccountRecoverySetting:
+      #   RecoveryMechanisms:
+      #     - Name: verified_email
+      #       Priority: 1
+      AutoVerifiedAttributes:
+        # - email
+        - phone_number
+      MfaConfiguration: "OFF"
+      SmsConfiguration:
+        ExternalId: !Sub ${Application}-${Project}-external
+        SnsCallerArn: !GetAtt UserPoolSNSRole.Arn
+      Schema:
+        - Name: name
+          AttributeDataType: String
+          Mutable: true
+          Required: true
+        - Name: email
+          AttributeDataType: String
+          Mutable: false
+          Required: true
+        - Name: phone_number
+          AttributeDataType: String
+          Mutable: false
+          Required: true
+
+  # the Administrators Group
+  UserPoolGroupAdministrators:
+    Type: AWS::Cognito::UserPoolGroup
+    Properties: 
+      GroupName: Administrators
+      Description: "The Administrators Group"
+      UserPoolId: !Ref UserPool
+
+  # the Strategists Group
+  UserPoolGroupStrategists:
+    Type: AWS::Cognito::UserPoolGroup
+    Properties: 
+      GroupName: Strategists
+      Description: "The Strategists Group"
+      UserPoolId: !Ref UserPool
+
+  # the Customers Group
+  UserPoolGroupCustomers:
+    Type: AWS::Cognito::UserPoolGroup
+    Properties: 
+      GroupName: Customers
+      Description: "The Customers Group"
+      UserPoolId: !Ref UserPool
+
+  UserPoolDomain: 
+    Type: AWS::Cognito::UserPoolDomain 
+    Properties:
+      UserPoolId: !Ref UserPool 
+      Domain: !Sub ${Application}-${Project}-login
+
+  UserPoolUserAdmin:
+    Type: AWS::Cognito::UserPoolUser
+    Properties:
+      UserPoolId: !Ref UserPool
+      Username: admin
+      DesiredDeliveryMediums:
+        - EMAIL
+      UserAttributes:
+        - Name: 'name'
+          Value: admin
+        - Name: 'email'
+          Value: errisy@gmail.com
+        - Name: phone_number
+          Value: '+61424773274'
+        - Name: email_verified
+          Value: true
+        - Name: phone_number_verified
+          Value: true
+  UserPoolUserGroupAttachmentAdmin:
+    Type: AWS::Cognito::UserPoolUserToGroupAttachment
+    DependsOn: UserPoolUserAdmin
+    Properties: 
+      GroupName: Administrators
+      Username: admin
+      UserPoolId: !Ref UserPool
+
+  UserPoolUserTest:
+    Type: AWS::Cognito::UserPoolUser
+    Properties:
+      UserPoolId: !Ref UserPool
+      Username: test
+      DesiredDeliveryMediums:
+        - EMAIL
+      UserAttributes:
+        - Name: 'name'
+          Value: test
+        - Name: 'email'
+          Value: sharkfintechtest@gmail.com
+        - Name: phone_number
+          Value: '+61424773275'
+  UserPoolUserGroupAttachmentTest:
+    Type: AWS::Cognito::UserPoolUserToGroupAttachment
+    DependsOn: UserPoolUserTest
+    Properties: 
+      GroupName: Administrators
+      Username: test
+      UserPoolId: !Ref UserPool
+
+  UserPoolClient:
+    Type: AWS::Cognito::UserPoolClient
+    Properties:
+      ClientName: !Sub ${Application}-${Project}-client
+      GenerateSecret: false
+      UserPoolId: !Ref UserPool
+      CallbackURLs:
+        - 'http://localhost:4200'
+        # Enable below to allow redirect to CloudFront hosted UI
+        # - Fn::Sub:
+        #     - 'https://${CloudFrontId}.cloudfront.net'
+        #     - CloudFrontId: 
+        #         Fn::Transform:
+        #           Name: cloudformation-utils
+        #           Parameters:
+        #             InputString: !Sub 'S3CloudFrontDistribution@${Application}--[ui-project]--${AWSRegion}--${EnvironmentTarget}'
+        #             Operation: Stack
+      LogoutURLs: 
+        - 'http://localhost:4200'
+        # Enable below to allow redirect to CloudFront hosted UI
+        # - Fn::Sub:
+        #     - 'https://${CloudFrontId}.cloudfront.net'
+        #     - CloudFrontId: 
+        #         Fn::Transform:
+        #           Name: cloudformation-utils
+        #           Parameters:
+        #             InputString: !Sub 'S3CloudFrontDistribution@${Application}--[ui-project]--${AWSRegion}--${EnvironmentTarget}'
+        #             Operation: Stack
+      # default unit is hours
+      AccessTokenValidity: 24
+      # default unit is days
+      RefreshTokenValidity: 28
+      SupportedIdentityProviders:
+        - COGNITO
+      AllowedOAuthFlowsUserPoolClient: true
+      AllowedOAuthFlows:
+        - code
+        - implicit
+      AllowedOAuthScopes:
+        - phone
+        - email
+        - profile
+        - openid
+        - aws.cognito.signin.user.admin
+
+  IdentityPool:
+    Type: AWS::Cognito::IdentityPool
+    Properties:
+      IdentityPoolName: !Sub ${Application}-${Project}-Identity
+      AllowUnauthenticatedIdentities: true
+      CognitoIdentityProviders: 
+        - ClientId: !Ref UserPoolClient
+          ProviderName: !GetAtt UserPool.ProviderName
+
+  CognitoUnAuthorizedRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument: 
+        Version: 2012-10-17
+        Statement:
+          - Effect: Allow
+            Principal: 
+              Federated: cognito-identity.amazonaws.com
+            Action: 
+              - "sts:AssumeRoleWithWebIdentity"
+            Condition:
+              StringEquals: 
+                "cognito-identity.amazonaws.com:aud": !Ref IdentityPool
+              "ForAnyValue:StringLike":
+                "cognito-identity.amazonaws.com:amr": unauthenticated
+      Policies:
+        - PolicyName: CognitoUnauthorizedPolicy
+          PolicyDocument: 
+            Version: 2012-10-17
+            Statement: 
+              - Effect: Allow
+                Action:
+                  - "mobileanalytics:PutEvents"
+                  - "cognito-sync:*"
+                Resource: "*"
+
+  CognitoAuthorizedRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument: 
+        Version: 2012-10-17
+        Statement:
+          - Effect: Allow
+            Principal: 
+              Federated: cognito-identity.amazonaws.com
+            Action: 
+              - "sts:AssumeRoleWithWebIdentity"
+            Condition:
+              StringEquals: 
+                "cognito-identity.amazonaws.com:aud": !Ref IdentityPool
+              "ForAnyValue:StringLike":
+                "cognito-identity.amazonaws.com:amr": authenticated
+      Policies:
+        - PolicyName: CognitoAuthorizedPolicy
+          PolicyDocument: 
+            Version: 2012-10-17
+            Statement: 
+              - Effect: Allow
+                Action:
+                  - "mobileanalytics:PutEvents"
+                  - "cognito-sync:*"
+                  - "cognito-identity:*"
+                Resource: "*"
+              - Effect: "Allow"
+                Action:
+                  - "lambda:InvokeFunction"
+                Resource: "*"
+
+  IdentityPoolRoleMapping:
+    Type: AWS::Cognito::IdentityPoolRoleAttachment
+    Properties:
+      IdentityPoolId: !Ref IdentityPool
+      Roles:
+        authenticated: !GetAtt CognitoAuthorizedRole.Arn
+        unauthenticated: !GetAtt CognitoUnAuthorizedRole.Arn

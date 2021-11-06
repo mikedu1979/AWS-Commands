@@ -1,0 +1,9 @@
+{
+    "name": "aws-angular-tools",
+    "description": "",
+    "main": "update.js",
+    "devDependencies": {
+        "@types/node": "^13.9.2",
+        "aws-sdk": "2.864.0"
+    }
+}
